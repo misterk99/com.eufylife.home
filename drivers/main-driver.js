@@ -76,7 +76,11 @@ module.exports = class mainDriver extends Homey.Driver {
                                 deviceId: matchedDevice.deviceId,
                                 deviceModel: matchedDevice.deviceModel,
                                 deviceModelName: EUFY_CLEAN_DEVICES[matchedDevice.deviceModel] || matchedDevice.deviceModelName,
-                                localKey: 'deprecated'
+                                localKey: matchedDevice.localKey || 'deprecated',
+                                last_known_ip: matchedDevice.ip || settings.last_known_ip || '',
+                                protocol_version: settings.protocol_version || '3.3',
+                                map_id: settings.map_id || 1,
+                                find_timeout_seconds: settings.find_timeout_seconds || 10
                             };
 
                             await device.setSettings(newSettings);
@@ -125,7 +129,11 @@ module.exports = class mainDriver extends Homey.Driver {
                     deviceId: device.deviceId,
                     deviceModel: device.deviceModel,
                     deviceModelName: EUFY_CLEAN_DEVICES[device.deviceModel] || device.deviceModelName,
-                    localKey: 'deprecated',
+                    localKey: device.localKey || 'deprecated',
+                    last_known_ip: device.ip || '',
+                    protocol_version: '3.3',
+                    map_id: 1,
+                    find_timeout_seconds: 10,
                     ...this.loginData
                 }
             }));
@@ -141,6 +149,12 @@ module.exports = class mainDriver extends Homey.Driver {
 
     async initFlowActions() {
         try {
+            if (this.homey.app.flowActionsInitialized) {
+                return;
+            }
+
+            this.homey.app.flowActionsInitialized = true;
+
             this.homey.flow.getActionCard('action_measure_clean_speed').registerRunListener(async (args, state) => {
                 return await args.device._onCleanSpeedChanged(args.action_measure_clean_speed_type);
             });
@@ -159,6 +173,22 @@ module.exports = class mainDriver extends Homey.Driver {
                     cleanExtent: args.action_clean_params_cleanextent,
                     mopMode: args.action_clean_params_mopmode
                 });
+            });
+
+            this.homey.flow.getActionCard('action_room_clean').registerRunListener(async (args, state) => {
+                return await args.device._onRoomCleanRequested(
+                    args.action_room_clean_room_id,
+                    args.action_room_clean_clean_times
+                );
+            });
+
+            const namedSceneCard = this.homey.flow.getActionCard('action_scene_named');
+            namedSceneCard.registerArgumentAutocompleteListener('scene', async (query, args) => {
+                return await args.device.getSceneAutocompleteItems(query);
+            });
+
+            namedSceneCard.registerRunListener(async (args, state) => {
+                return await args.device._onNamedSceneRequested(args.scene);
             });
         } catch (err) {
             this.homey.app.error(err);
