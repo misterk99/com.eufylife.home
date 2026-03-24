@@ -76,12 +76,14 @@ module.exports = class mainDevice extends Homey.Device {
     async initApi(overrideSettings = null) {
         try {
             const settings = overrideSettings ? overrideSettings : this.getSettings();
-            let { deviceId, localKey, ip, last_known_ip, protocol_version, map_id, find_timeout_seconds } = settings;
+            let { deviceId, deviceModel, apiType, localKey, ip, last_known_ip, protocol_version, map_id, find_timeout_seconds } = settings;
             const resolvedIp = isPrivateIp(last_known_ip) ? last_known_ip : (isPrivateIp(ip) ? ip : undefined);
             this.homey.app.log(`[Device] ${this.getName()} - initApi settings`, { ...settings, username: 'LOG', password: '***' });
 
             const deviceConfig = {
                 deviceId,
+                ...(deviceModel ? { deviceModel } : {}),
+                ...(apiType ? { apiType } : {}),
                 ...(localKey !== 'deprecated' && { localKey }),
                 ...(localKey !== 'deprecated' && resolvedIp ? { ip: resolvedIp } : {}),
                 ...(localKey !== 'deprecated' && { version: protocol_version || '3.3' }),
@@ -106,12 +108,14 @@ module.exports = class mainDevice extends Homey.Device {
         const driverManifest = this.driver.manifest;
         let driverCapabilities = driverManifest.capabilities;
         let deviceCapabilities = this.getCapabilities();
-        const localKey = this.getSettings().localKey;
+        const settings = this.getSettings();
+        const localKey = settings.localKey;
         const hasRealLocalKey = !!localKey && localKey !== 'deprecated';
+        const resolvedApiType = this.config.apiType || settings.apiType;
         const supportsNamedScenes = !!this.config.mqtt;
         const supportsRoomClean = hasRealLocalKey && !this.config.mqtt
             && (
-                this.config.apiType === 'novel'
+                resolvedApiType === 'novel'
                 || (
                     !!this.eufyRoboVac?.supportsNumericRoomClean
                     && this.eufyRoboVac.supportsNumericRoomClean()
@@ -146,6 +150,7 @@ module.exports = class mainDevice extends Homey.Device {
         this.homey.app.log(`[Device] ${this.getName()} - Capability flags =>`, {
             mqtt: !!this.config.mqtt,
             apiType: this.config.apiType,
+            resolvedApiType,
             hasRealLocalKey,
             supportsNamedScenes,
             supportsRoomClean
