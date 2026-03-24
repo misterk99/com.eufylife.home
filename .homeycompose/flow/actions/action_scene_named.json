@@ -1,12 +1,12 @@
 {
   "id": "action_scene_named",
   "title": {
-    "en": "Start named scene",
-    "nl": "Start benoemde scene"
+    "en": "Start saved scene",
+    "nl": "Start opgeslagen scene"
   },
   "titleFormatted": {
-    "en": "Start [[scene]]",
-    "nl": "Start [[scene]]"
+    "en": "Start saved scene [[scene]]",
+    "nl": "Start opgeslagen scene [[scene]]"
   },
   "args": [
     {

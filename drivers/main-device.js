@@ -95,10 +95,16 @@ module.exports = class mainDevice extends Homey.Device {
         let driverCapabilities = driverManifest.capabilities;
         let deviceCapabilities = this.getCapabilities();
         const localKey = this.getSettings().localKey;
+        const hasRealLocalKey = !!localKey && localKey !== 'deprecated';
         const supportsNamedScenes = !!this.config.mqtt;
-        const supportsRoomClean = !!localKey && localKey !== 'deprecated'
-            && !!this.eufyRoboVac?.supportsNumericRoomClean
-            && this.eufyRoboVac.supportsNumericRoomClean();
+        const supportsRoomClean = hasRealLocalKey && !this.config.mqtt
+            && (
+                this.config.apiType === 'novel'
+                || (
+                    !!this.eufyRoboVac?.supportsNumericRoomClean
+                    && this.eufyRoboVac.supportsNumericRoomClean()
+                )
+            );
 
         if (this.config.apiType === 'novel') {
             driverCapabilities = [...driverCapabilities, 'action_clean_params'];
@@ -125,6 +131,13 @@ module.exports = class mainDevice extends Homey.Device {
             deviceCapabilities = deviceCapabilities.filter((c) => c !== 'action_room_clean');
         }
 
+        this.homey.app.log(`[Device] ${this.getName()} - Capability flags =>`, {
+            mqtt: !!this.config.mqtt,
+            apiType: this.config.apiType,
+            hasRealLocalKey,
+            supportsNamedScenes,
+            supportsRoomClean
+        });
         this.homey.app.log(`[Device] ${this.getName()} - Found capabilities =>`, deviceCapabilities);
 
         await this.updateCapabilities(driverCapabilities, deviceCapabilities);
