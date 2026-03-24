@@ -2,6 +2,17 @@ const Homey = require('homey');
 const { EUFY_CLEAN_DEVICES } = require('eufy-clean');
 const { encrypt } = require('../lib/helpers');
 
+function isPrivateIp(value) {
+    if (typeof value !== 'string') {
+        return false;
+    }
+
+    const ip = value.trim();
+    return /^10\./.test(ip)
+        || /^192\.168\./.test(ip)
+        || /^172\.(1[6-9]|2\d|3[0-1])\./.test(ip);
+}
+
 module.exports = class mainDriver extends Homey.Driver {
     onInit() {
         this.homey.app.log('[Driver] - init', this.id);
@@ -77,7 +88,9 @@ module.exports = class mainDriver extends Homey.Driver {
                                 deviceModel: matchedDevice.deviceModel,
                                 deviceModelName: EUFY_CLEAN_DEVICES[matchedDevice.deviceModel] || matchedDevice.deviceModelName,
                                 localKey: matchedDevice.localKey || 'deprecated',
-                                last_known_ip: matchedDevice.ip || settings.last_known_ip || '',
+                                last_known_ip: isPrivateIp(matchedDevice.ip)
+                                    ? matchedDevice.ip
+                                    : (isPrivateIp(settings.last_known_ip) ? settings.last_known_ip : ''),
                                 protocol_version: settings.protocol_version || '3.3',
                                 map_id: settings.map_id || 1,
                                 find_timeout_seconds: settings.find_timeout_seconds || 10
@@ -130,7 +143,7 @@ module.exports = class mainDriver extends Homey.Driver {
                     deviceModel: device.deviceModel,
                     deviceModelName: EUFY_CLEAN_DEVICES[device.deviceModel] || device.deviceModelName,
                     localKey: device.localKey || 'deprecated',
-                    last_known_ip: device.ip || '',
+                    last_known_ip: isPrivateIp(device.ip) ? device.ip : '',
                     protocol_version: '3.3',
                     map_id: 1,
                     find_timeout_seconds: 10,

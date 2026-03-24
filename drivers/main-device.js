@@ -2,6 +2,17 @@ const Homey = require('homey');
 const { EUFY_CLEAN_GET_STATE, EUFY_CLEAN_VACUUMCLEANER_STATE, EUFY_CLEAN_LEGACY_CLEAN_SPEED, EUFY_CLEAN_WORK_STATUS, EUFY_CLEAN_ERROR_CODES, EUFY_CLEAN_GET_CLEAN_SPEED } = require('eufy-clean');
 const { sleep } = require('../lib/helpers');
 
+function isPrivateIp(value) {
+    if (typeof value !== 'string') {
+        return false;
+    }
+
+    const ip = value.trim();
+    return /^10\./.test(ip)
+        || /^192\.168\./.test(ip)
+        || /^172\.(1[6-9]|2\d|3[0-1])\./.test(ip);
+}
+
 module.exports = class mainDevice extends Homey.Device {
     async onInit() {
         const driverManifest = this.driver.manifest;
@@ -66,12 +77,13 @@ module.exports = class mainDevice extends Homey.Device {
         try {
             const settings = overrideSettings ? overrideSettings : this.getSettings();
             let { deviceId, localKey, ip, last_known_ip, protocol_version, map_id, find_timeout_seconds } = settings;
+            const resolvedIp = isPrivateIp(last_known_ip) ? last_known_ip : (isPrivateIp(ip) ? ip : undefined);
             this.homey.app.log(`[Device] ${this.getName()} - initApi settings`, { ...settings, username: 'LOG', password: '***' });
 
             const deviceConfig = {
                 deviceId,
                 ...(localKey !== 'deprecated' && { localKey }),
-                ...(localKey !== 'deprecated' && { ip: last_known_ip || ip }),
+                ...(localKey !== 'deprecated' && resolvedIp ? { ip: resolvedIp } : {}),
                 ...(localKey !== 'deprecated' && { version: protocol_version || '3.3' }),
                 ...(localKey !== 'deprecated' && { mapId: Number(map_id) || 1 }),
                 ...(localKey !== 'deprecated' && { findTimeoutSeconds: Number(find_timeout_seconds) || 10 }),
@@ -244,7 +256,7 @@ module.exports = class mainDevice extends Homey.Device {
         }
 
         const resolvedIp = this.eufyRoboVac.getResolvedIp();
-        if (!resolvedIp || settings.last_known_ip === resolvedIp) {
+        if (!isPrivateIp(resolvedIp) || settings.last_known_ip === resolvedIp) {
             return;
         }
 
