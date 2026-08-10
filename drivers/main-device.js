@@ -2,23 +2,21 @@ const Homey = require('homey');
 const { EUFY_CLEAN_GET_STATE, EUFY_CLEAN_VACUUMCLEANER_STATE, EUFY_CLEAN_LEGACY_CLEAN_SPEED, EUFY_CLEAN_WORK_STATUS, EUFY_CLEAN_ERROR_CODES, EUFY_CLEAN_GET_CLEAN_SPEED } = require('eufy-clean');
 const { sleep } = require('../lib/helpers');
 
-function isPrivateIp(value) {
-    if (typeof value !== 'string') {
-        return false;
-    }
-
-    const ip = value.trim();
-    return /^10\./.test(ip)
-        || /^192\.168\./.test(ip)
-        || /^172\.(1[6-9]|2\d|3[0-1])\./.test(ip);
-}
-
 module.exports = class mainDevice extends Homey.Device {
     async onInit() {
+        const settings = this.getSettings();
         const driverManifest = this.driver.manifest;
 
         this.homey.app.log('[Device] - init =>', this.getName(), driverManifest.id);
         this.setUnavailable(`${this.getName()} is initializing.... This may take a while`);
+
+        if ('localKey' in settings && settings.localKey !== 'deprecated') {
+            // this.setUnavailable('Legacy API detected. Please repair the device to use the new API.');
+
+            await this.homey.notifications.createNotification({
+                excerpt: `[Eufy Clean][${this.getName()}] \n\n Old API detected! - Please repair the device to use the new API. The app was rewritten because of a lot of changes in the API. You can still use this app as you were used to, however support for local devices will be removed in the future \n\n\n - Please repair the device to use the new API.`,
+            });
+        }
     }
 
     onAdded() {
@@ -76,19 +74,13 @@ module.exports = class mainDevice extends Homey.Device {
     async initApi(overrideSettings = null) {
         try {
             const settings = overrideSettings ? overrideSettings : this.getSettings();
-            let { deviceId, deviceModel, apiType, localKey, ip, last_known_ip, protocol_version, map_id, find_timeout_seconds } = settings;
-            const resolvedIp = isPrivateIp(last_known_ip) ? last_known_ip : (isPrivateIp(ip) ? ip : undefined);
+            let { deviceId, localKey, ip } = settings;
             this.homey.app.log(`[Device] ${this.getName()} - initApi settings`, { ...settings, username: 'LOG', password: '***' });
 
             const deviceConfig = {
                 deviceId,
-                ...(deviceModel ? { deviceModel } : {}),
-                ...(apiType ? { apiType } : {}),
                 ...(localKey !== 'deprecated' && { localKey }),
-                ...(localKey !== 'deprecated' && resolvedIp ? { ip: resolvedIp } : {}),
-                ...(localKey !== 'deprecated' && { version: protocol_version || '3.3' }),
-                ...(localKey !== 'deprecated' && { mapId: Number(map_id) || 1 }),
-                ...(localKey !== 'deprecated' && { findTimeoutSeconds: Number(find_timeout_seconds) || 10 }),
+                ...(localKey !== 'deprecated' && { ip }),
                 debug : false
             };
 
@@ -96,7 +88,6 @@ module.exports = class mainDevice extends Homey.Device {
             this.config = this.eufyRoboVac.config;
 
             await this.eufyRoboVac.connect();
-            await this.persistResolvedIp();
             await this.eufyRoboVac.formatStatus();
         } catch (error) {
             this.setUnavailable(error);
@@ -108,19 +99,7 @@ module.exports = class mainDevice extends Homey.Device {
         const driverManifest = this.driver.manifest;
         let driverCapabilities = driverManifest.capabilities;
         let deviceCapabilities = this.getCapabilities();
-        const settings = this.getSettings();
-        const localKey = settings.localKey;
-        const hasRealLocalKey = !!localKey && localKey !== 'deprecated';
-        const resolvedApiType = this.config.apiType || settings.apiType;
         const supportsNamedScenes = !!this.config.mqtt;
-        const supportsRoomClean = hasRealLocalKey && !this.config.mqtt
-            && (
-                resolvedApiType === 'novel'
-                || (
-                    !!this.eufyRoboVac?.supportsNumericRoomClean
-                    && this.eufyRoboVac.supportsNumericRoomClean()
-                )
-            );
 
         if (this.config.apiType === 'novel') {
             driverCapabilities = [...driverCapabilities, 'action_clean_params'];
@@ -141,20 +120,6 @@ module.exports = class mainDevice extends Homey.Device {
             deviceCapabilities = deviceCapabilities.filter((c) => c !== 'action_scene_named');
         }
 
-        if (supportsRoomClean) {
-            driverCapabilities = [...driverCapabilities, 'action_room_clean'];
-        } else {
-            deviceCapabilities = deviceCapabilities.filter((c) => c !== 'action_room_clean');
-        }
-
-        this.homey.app.log(`[Device] ${this.getName()} - Capability flags =>`, {
-            mqtt: !!this.config.mqtt,
-            apiType: this.config.apiType,
-            resolvedApiType,
-            hasRealLocalKey,
-            supportsNamedScenes,
-            supportsRoomClean
-        });
         this.homey.app.log(`[Device] ${this.getName()} - Found capabilities =>`, deviceCapabilities);
 
         await this.updateCapabilities(driverCapabilities, deviceCapabilities);
@@ -196,7 +161,6 @@ module.exports = class mainDevice extends Homey.Device {
             }
 
             await this.eufyRoboVac.updateDevice();
-            await this.persistResolvedIp();
 
             const batteryLevel = (await this.eufyRoboVac.getBatteryLevel()) || 1;
             const workStatus = await this.eufyRoboVac.getWorkStatus();
@@ -252,22 +216,6 @@ module.exports = class mainDevice extends Homey.Device {
             this.setUnavailable(error);
             this.homey.app.log(error);
         }
-    }
-
-    async persistResolvedIp() {
-        const settings = this.getSettings();
-        if (!settings.localKey || settings.localKey === 'deprecated' || !this.eufyRoboVac?.getResolvedIp) {
-            return;
-        }
-
-        const resolvedIp = this.eufyRoboVac.getResolvedIp();
-        if (!isPrivateIp(resolvedIp) || settings.last_known_ip === resolvedIp) {
-            return;
-        }
-
-        await this.setSettings({
-            last_known_ip: resolvedIp
-        });
     }
 
     async setCapabilityValuesInterval() {
@@ -371,23 +319,6 @@ module.exports = class mainDevice extends Homey.Device {
         } catch (err) {
             this.homey.app.log(`[Device] ${this.getName()} - _onCleanParamChanged => error`, err);
             this.log('_onCleanParamChanged() -> error', err);
-        }
-    }
-
-    async _onRoomCleanRequested(roomId, cleanTimes = 1) {
-        this.homey.app.log(`[Device] ${this.getName()} - _onRoomCleanRequested =>`, { roomId, cleanTimes });
-        try {
-            const normalizedRoomId = Number.parseInt(String(roomId), 10);
-            const normalizedCleanTimes = cleanTimes ? Number.parseInt(String(cleanTimes), 10) : 1;
-
-            if (!Number.isFinite(normalizedRoomId) || normalizedRoomId < 1) {
-                throw new Error('Please provide a valid room ID.');
-            }
-
-            return await this.eufyRoboVac.cleanRooms([normalizedRoomId], Number.isFinite(normalizedCleanTimes) && normalizedCleanTimes > 0 ? normalizedCleanTimes : 1);
-        } catch (err) {
-            this.homey.app.log(`[Device] ${this.getName()} - _onRoomCleanRequested => error`, err);
-            this.log('_onRoomCleanRequested() -> error', err);
         }
     }
 
